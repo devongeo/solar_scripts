@@ -14,6 +14,7 @@
 
 import dbconn,sys,os,subprocess,re,tempfile,time
 from config import *
+#from arcpy import *
 
 buffersize  = config.get('buffers','dem_selection_buffer')
 basedir = config.get('paths','las_dir')
@@ -46,7 +47,7 @@ lidarlist = """
 """
 
 completeQuery = """
-    UPDATE """ + config.get('postgres','schema') + "." + config.get('postgres','dem_fishnet_table') + """ dem,
+    UPDATE """ + config.get('postgres','schema') + "." + config.get('postgres','dem_fishnet_table') + """ dem
     SET state=NEWSTATE
     WHERE
     dem.id=DEMID
@@ -59,21 +60,29 @@ completeQuery = """
 # outputdir is the directory where the files should be saved
 def blast2dem(demid,lidarlist,line,buffersize,outputdir):
 
+    print demid
+    print lidarlist
+    print line
+    print buffersize
+    print outputdir
+    
     outputfile = outputdir + '\\' + '_'.join(line) + '.img'
     cmd = ['blast2dem']
-
+   
     # Input tiles
     cmd.append('-lof ' + lidarlist)
-
+    
     # Processing parameters
     cmd.append('-merged')
     cmd.append('-step 1')
-
+    
     # Spatial Filtering 
     # This defines the buffered area used for calcultions
-    cmd.append('-inside ' + str(int(line[0]) - buffersize) + ' ' + str(int(line[1]) - buffersize) + ' ' + str(int(line[2]) + buffersize) + ' ' + str(int(line[3]) + buffersize))
+    cmd.append('-inside ' + str(int(line[0]) - int(buffersize)) + ' ' + str(int(line[1]) - int(buffersize)) + ' ' + str(int(line[2]) + int(buffersize)) + ' ' + str(int(line[3]) + int(buffersize)))
+    
     # This defines the output lower-left corner
-    cmd.append('-ll ' + line[0] + ' ' + line[1])
+    cmd.append('-ll ' + str(line[0]) + ' ' + str(line[1]))
+    
     # This defines the output tile's height and width
     cmd.append('-ncols ' + str(int(line[2]) - int(line[0])))
     cmd.append('-nrows ' + str(int(line[3]) - int(line[1])))
@@ -89,12 +98,18 @@ def blast2dem(demid,lidarlist,line,buffersize,outputdir):
     cmd.append('-odir ' + outputdir)
 
     command = ' '.join(cmd)
+    
+    print command
 
     # Check output
     try:
         process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
         output,error = process.communicate()
         returncode = process.poll()
+
+        #build pyramids for new DSM tile
+        #arcpy.BuildPyramids_management(outputdir + "\\" + filename,pyramid_level="-1",SKIP_FIRST="NONE",resample_technique="NEAREST",compression_type="DEFAULT",compression_quality="75",skip_existing="OVERWRITE")
+        
     except:
         e = sys.exc_info()[0]
         sys.stdout.write("\t\t\t" + str(e))
@@ -139,7 +154,7 @@ while len(res) > 0:
     for row in res:
         count += 1
 
-        sys.stdout.write("Running blast2dem for row " + str(row['id']) + "\t\t\t")
+        sys.stdout.write("\nRunning blast2dem for row " + str(row['id']) + "\t\t\t")
         starttime = time.time()
 
         # The long lists of files was making the command too long for PowerShell to handle 
@@ -165,9 +180,13 @@ while len(res) > 0:
         if blasted:
             print "DONE! (" + str((stoptime - starttime)) + " seconds, running avg:" + str(average) + ")"
             os.unlink(tmp.name)
-            dbconn.run_query(completeQuery.replace("DEMID",str(row['id'])).replace('NEWSTATE','2'))
+            markDone = completeQuery.replace("DEMID",str(row['id'])).replace('NEWSTATE','2')
+            print markDone
+            dbconn.run_query(markDone)
         else:
             print "Error! (" + str((stoptime - starttime)) + " seconds, running avg:" + str(average) + ")"
             dbconn.run_query(completeQuery.replace("DEMID",str(row['id'])).replace('NEWSTATE','-3'))
+
+        print "--END--\n"
 
     res = dbconn.run_query(reserveQuery).fetchall()

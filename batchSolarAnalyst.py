@@ -31,6 +31,7 @@ import time
 import dbconn_quick
 import shutil
 import datetime
+import dbconn
 from config import *
 print "Importing arcpy"
 import arcpy
@@ -52,6 +53,20 @@ print "Checking out the spatial extension"
 arcpy.CheckOutExtension("spatial")
 
 print "Making temp paths"
+
+temp_dir = config.get("paths",'temp_dir')
+
+# Check for existence of directories and create as needed
+if not os.path.isdir(temp_dir):
+    try:
+        os.mkdir(temp_dir)
+    except:
+        pass
+
+if not os.path.isdir(temp_dir):
+    print "ERROR! Couldn't create temporary directory", temp_dir
+    exit()
+
 workspace = config.get('paths','temp_dir') + os.sep + tmpfile + '_workspace'
 if not os.path.isdir(workspace):
     try:
@@ -64,6 +79,21 @@ if not os.path.isdir(workspace):
     exit()
 
 arcpy.env.workspace = workspace
+
+# Test read/write privledges
+try:
+    ret = os.access(out_path, os.R_OK)
+except:
+    print 'You do not have read access to', out_path + '.  Please contact the network admin for access.'
+    raw_input('Please press enter to exit.')
+    exit()
+
+try:
+    ret = os.access(out_path, os.W_OK)
+except:
+    print 'You do not have write access to', out_path + '.  Please contact the network admin for access.'
+    raw_input('Please press enter to exit.')
+    exit()
 
 print "Making scratch workspace"
 # Make a temp directory to avoid the FATAL ERROR (INFADI)  MISSING DIRECTORY error 
@@ -169,8 +199,18 @@ while len(res) > 0:
         # set processing environment
         arcpy.env.extent = arcpy.sa.Extent(x_min, y_min, x_max, y_max)
 
-        clipped_solar_raster_dir = out_path + os.sep + 'SRR_' + str(row['id'] / 1000 * 1000).zfill(4) + os.sep
-        clipped_solar_raster =  clipped_solar_raster_dir + 'SRR_' + str(row['id']) + '.img' # what raster format do we want???
+        # lookup dsm tile id
+        demno = 0
+        q = """
+            SELECT d.id FROM dem_fishnets d,sa_fishnets s WHERE ST_WITHIN(s.the_geom,d.the_geom) AND s.id=""" + str(row['id']) + """
+        """
+        t = dbconn.run_query(q)
+        for s in t:
+            demno = str(s['id'])
+            
+        #clipped_solar_raster_dir = out_path + os.sep + 'SRR_' + str(row['id'] / 1000 * 1000).zfill(4) + os.sep
+        clipped_solar_raster_dir = out_path + os.sep + demno + os.sep        
+        clipped_solar_raster =  clipped_solar_raster_dir + str(row['id']) + '.img' # what raster format do we want???
 
         if not os.path.exists(clipped_solar_raster_dir):
             os.mkdir(clipped_solar_raster_dir)
